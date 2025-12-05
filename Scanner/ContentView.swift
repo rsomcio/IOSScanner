@@ -23,7 +23,7 @@ class ReceiptScannerViewModel {
     private var parserService: ReceiptParserService?
 
     // Hardcoded API key
-    private let apiKey = ""
+    private let apiKey = "YOUR_OPENAI_API_KEY_HERE"
 
     func initialize() {
         parserService = ReceiptParserService(apiKey: apiKey)
@@ -96,6 +96,11 @@ struct ContentView: View {
     @State private var selectedImage: String = "IMG_8168"
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
+    @State private var capturedImage: UIImage?
+    @State private var showingCamera = false
+    @State private var showingPhotoLibrary = false
+    @State private var showingImageSourcePicker = false
+    @State private var imageSourceType: ImageSourceType = .assets
 
     var body: some View {
         NavigationStack {
@@ -120,20 +125,77 @@ struct ContentView: View {
                         Text("Select Receipt Image")
                             .font(.headline)
 
-                        Picker("Select Receipt", selection: $selectedImage) {
-                            Text("Receipt 1 (IMG_8168)").tag("IMG_8168")
-                            Text("Receipt 2 (IMG_8171)").tag("IMG_8171")
+                        // Image source picker
+                        Picker("Image Source", selection: $imageSourceType) {
+                            Text("Test Images").tag(ImageSourceType.assets)
+                            Text("Camera").tag(ImageSourceType.camera)
+                            Text("Photo Library").tag(ImageSourceType.photoLibrary)
                         }
                         .pickerStyle(.segmented)
+                        .onChange(of: imageSourceType) { _, newValue in
+                            // Reset parsed results when switching modes
+                            if viewModel.parsedReceipt != nil {
+                                viewModel.reset()
+                            }
 
-                        // Display selected image
-                        if let image = UIImage(named: selectedImage) {
+                            switch newValue {
+                            case .camera:
+                                showingCamera = true
+                            case .photoLibrary:
+                                showingPhotoLibrary = true
+                            case .assets:
+                                capturedImage = nil
+                            }
+                        }
+
+                        // Asset picker (only shown when using test images)
+                        if imageSourceType == .assets {
+                            Picker("Select Receipt", selection: $selectedImage) {
+                                Text("Receipt 1 (IMG_8168)").tag("IMG_8168")
+                                Text("Receipt 2 (IMG_8171)").tag("IMG_8171")
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        // Display image
+                        if let capturedImage = capturedImage {
+                            Image(uiImage: capturedImage)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 300)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .shadow(radius: 4)
+                        } else if imageSourceType == .assets, let image = UIImage(named: selectedImage) {
                             Image(uiImage: image)
                                 .resizable()
                                 .scaledToFit()
                                 .frame(maxHeight: 300)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .shadow(radius: 4)
+                        } else if imageSourceType != .assets {
+                            Button(action: {
+                                switch imageSourceType {
+                                case .camera:
+                                    showingCamera = true
+                                case .photoLibrary:
+                                    showingPhotoLibrary = true
+                                case .assets:
+                                    break
+                                }
+                            }) {
+                                VStack(spacing: 12) {
+                                    Image(systemName: imageSourceType == .camera ? "camera.fill" : "photo.fill")
+                                        .font(.system(size: 50))
+                                        .foregroundStyle(.gray)
+                                    Text(imageSourceType == .camera ? "Tap to Take Photo" : "Tap to Choose Photo")
+                                        .font(.caption)
+                                        .foregroundColor(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 200)
+                                .background(Color.gray.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                            }
                         }
                     }
                     .padding(.horizontal)
@@ -143,7 +205,16 @@ struct ContentView: View {
                         Button(action: {
                             Task {
                                 viewModel.initialize()
-                                if let image = UIImage(named: selectedImage) {
+
+                                let imageToProcess: UIImage?
+                                switch imageSourceType {
+                                case .assets:
+                                    imageToProcess = UIImage(named: selectedImage)
+                                case .camera, .photoLibrary:
+                                    imageToProcess = capturedImage
+                                }
+
+                                if let image = imageToProcess {
                                     await viewModel.processReceipt(image: image)
                                 }
                             }
@@ -158,7 +229,7 @@ struct ContentView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                         }
-                        .disabled(viewModel.isProcessing)
+                        .disabled(viewModel.isProcessing || (imageSourceType != .assets && capturedImage == nil))
 
                         if !viewModel.csvOutput.isEmpty {
                             Button(action: {
@@ -375,6 +446,22 @@ struct ContentView: View {
                 if let url = shareURL {
                     ShareSheet(items: [url])
                 }
+            }
+            .sheet(isPresented: $showingCamera) {
+                CameraPicker(image: $capturedImage)
+                    .onDisappear {
+                        if capturedImage == nil {
+                            imageSourceType = .assets
+                        }
+                    }
+            }
+            .sheet(isPresented: $showingPhotoLibrary) {
+                PhotoLibraryPicker(image: $capturedImage)
+                    .onDisappear {
+                        if capturedImage == nil {
+                            imageSourceType = .assets
+                        }
+                    }
             }
         }
         .onAppear {
