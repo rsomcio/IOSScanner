@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 import UIKit
 
 @Observable
@@ -23,7 +24,7 @@ class ReceiptScannerViewModel {
     private var parserService: ReceiptParserService?
 
     // Hardcoded API key
-    private let apiKey = "YOUR_OPENAI_API_KEY_HERE"
+    private let apiKey = ""
 
     func initialize() {
         parserService = ReceiptParserService(apiKey: apiKey)
@@ -92,6 +93,10 @@ class ReceiptScannerViewModel {
 }
 
 struct ContentView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \SavedReceipt.createdAt, order: .reverse)
+    private var savedReceipts: [SavedReceipt]
+
     @State private var viewModel = ReceiptScannerViewModel()
     @State private var selectedImage: String = "IMG_8168"
     @State private var showingShareSheet = false
@@ -101,24 +106,47 @@ struct ContentView: View {
     @State private var showingPhotoLibrary = false
     @State private var showingImageSourcePicker = false
     @State private var imageSourceType: ImageSourceType = .assets
+    @State private var showingSavedReceipts = false
+    @State private var showingSaveConfirmation = false
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Header
-                    VStack(spacing: 8) {
-                        Image(systemName: "doc.text.viewfinder")
-                            .font(.system(size: 50))
-                            .foregroundStyle(.blue)
-                        Text("Receipt Scanner")
-                            .font(.title2)
-                            .fontWeight(.bold)
-                        Text("OCR + AI Parsing")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+            VStack(spacing: 0) {
+                // Top Navigation Bar
+                HStack {
+                    Button(action: {
+                        // Back action - currently no-op since this is the main screen
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.primary)
+                            .frame(width: 32, height: 32)
                     }
-                    .padding(.top)
+
+                    Text("Welcome to Recibo")
+                        .font(.system(size: 17, weight: .regular))
+
+                    Spacer()
+
+                    Button(action: {
+                        // Notification action
+                    }) {
+                        Image(systemName: "bell")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary)
+                            .frame(width: 32, height: 32)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(UIColor.systemBackground))
+
+                Divider()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Header
+          
 
                     // Image selector
                     VStack(alignment: .leading, spacing: 8) {
@@ -128,6 +156,7 @@ struct ContentView: View {
                         // Image source picker
                         Picker("Image Source", selection: $imageSourceType) {
                             Text("Test Images").tag(ImageSourceType.assets)
+
                             Text("Camera").tag(ImageSourceType.camera)
                             Text("Photo Library").tag(ImageSourceType.photoLibrary)
                         }
@@ -147,6 +176,7 @@ struct ContentView: View {
                                 capturedImage = nil
                             }
                         }
+
 
                         // Asset picker (only shown when using test images)
                         if imageSourceType == .assets {
@@ -231,6 +261,20 @@ struct ContentView: View {
                         }
                         .disabled(viewModel.isProcessing || (imageSourceType != .assets && capturedImage == nil))
 
+                        if viewModel.parsedReceipt != nil {
+                            Button(action: saveReceipt) {
+                                HStack {
+                                    Image(systemName: "square.and.arrow.down")
+                                    Text("Save Receipt")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
+                        }
+
                         if !viewModel.csvOutput.isEmpty {
                             Button(action: {
                                 do {
@@ -250,6 +294,20 @@ struct ContentView: View {
                                 .foregroundColor(.white)
                                 .cornerRadius(10)
                             }
+                        }
+
+                        Button(action: {
+                            showingSavedReceipts = true
+                        }) {
+                            HStack {
+                                Image(systemName: "list.bullet.rectangle")
+                                Text("View Saved (\(savedReceipts.count))")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
                         }
 
                         if viewModel.parsedReceipt != nil {
@@ -438,10 +496,10 @@ struct ContentView: View {
                         .padding(.horizontal)
                     }
 
+                    }
                 }
             }
-            .navigationTitle("Scanner")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarHidden(true)
             .sheet(isPresented: $showingShareSheet) {
                 if let url = shareURL {
                     ShareSheet(items: [url])
@@ -463,9 +521,37 @@ struct ContentView: View {
                         }
                     }
             }
+            .sheet(isPresented: $showingSavedReceipts) {
+                SavedReceiptsView()
+            }
+            .alert("Receipt Saved", isPresented: $showingSaveConfirmation) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Your receipt has been saved successfully")
+            }
         }
         .onAppear {
             viewModel.initialize()
+        }
+    }
+
+    // MARK: - Helper Functions
+    private func saveReceipt() {
+        guard let receipt = viewModel.parsedReceipt else { return }
+
+        // Create SwiftData receipt from parsed receipt
+        let savedReceipt = SavedReceipt(from: receipt, ocrText: viewModel.ocrText)
+
+        // Insert into database
+        modelContext.insert(savedReceipt)
+
+        // Save to persistent store
+        do {
+            try modelContext.save()
+            showingSaveConfirmation = true
+            viewModel.currentStep = "Receipt saved!"
+        } catch {
+            viewModel.errorMessage = "Failed to save: \(error.localizedDescription)"
         }
     }
 }
