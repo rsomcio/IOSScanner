@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct ScannerApp: App {
@@ -13,5 +14,6 @@ struct ScannerApp: App {
         WindowGroup {
             ContentView()
         }
+        .modelContainer(for: [SavedReceipt.self, SavedReceiptItem.self])
     }
 }
