@@ -14,7 +14,7 @@ struct SavedReceiptsView: View {
     @Query(sort: \SavedReceipt.createdAt, order: .reverse)
     private var receipts: [SavedReceipt]
 
-    @State private var selectedReceipt: SavedReceipt?
+    @State private var selectedReceiptID: UUID?
     @State private var showingDetail = false
     @State private var searchText = ""
 
@@ -51,7 +51,7 @@ struct SavedReceiptsView: View {
                             ReceiptRowView(receipt: receipt)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    selectedReceipt = receipt
+                                    selectedReceiptID = receipt.id
                                     showingDetail = true
                                 }
                         }
@@ -76,8 +76,8 @@ struct SavedReceiptsView: View {
                 }
             }
             .sheet(isPresented: $showingDetail) {
-                if let receipt = selectedReceipt {
-                    ReceiptDetailView(receipt: receipt)
+                if let receiptID = selectedReceiptID {
+                    ReceiptDetailView(receiptID: receiptID)
                 }
             }
         }
@@ -137,12 +137,51 @@ struct ReceiptRowView: View {
 // MARK: - Receipt Detail View
 struct ReceiptDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    let receipt: SavedReceipt
+    @Environment(\.modelContext) private var modelContext
 
+    let receiptID: UUID
+
+    @State private var receipt: SavedReceipt?
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
 
     var body: some View {
+        Group {
+            if let receipt = receipt {
+                receiptDetailContent(receipt: receipt)
+            } else {
+                VStack {
+                    ProgressView()
+                    Text("Loading...")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .onAppear {
+            loadReceipt()
+        }
+    }
+
+    private func loadReceipt() {
+        // Explicitly fetch the receipt with its relationships
+        let descriptor = FetchDescriptor<SavedReceipt>(
+            predicate: #Predicate { $0.id == receiptID }
+        )
+
+        do {
+            let results = try modelContext.fetch(descriptor)
+            if let fetchedReceipt = results.first {
+                // Access the items to force load the relationship
+                _ = fetchedReceipt.items.count
+                receipt = fetchedReceipt
+            }
+        } catch {
+            print("Error fetching receipt: \(error)")
+        }
+    }
+
+    @ViewBuilder
+    private func receiptDetailContent(receipt: SavedReceipt) -> some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
@@ -247,7 +286,7 @@ struct ReceiptDetailView: View {
                     }
 
                     // Export button
-                    Button(action: exportCSV) {
+                    Button(action: { exportCSV(receipt: receipt) }) {
                         HStack {
                             Image(systemName: "square.and.arrow.up")
                             Text("Export as CSV")
@@ -279,7 +318,7 @@ struct ReceiptDetailView: View {
         }
     }
 
-    private func exportCSV() {
+    private func exportCSV(receipt: SavedReceipt) {
         let exporter = CSVExportService()
 
         // Convert SavedReceipt to ParsedReceipt for CSV export

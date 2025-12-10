@@ -180,7 +180,7 @@ actor ReceiptParserService {
     /// Validate parsed receipt data
     /// - Parameter receipt: ParsedReceipt to validate
     /// - Returns: Tuple of (isValid, errors)
-    func validateReceipt(_ receipt: ParsedReceipt) -> (isValid: Bool, errors: [String]) {
+    nonisolated func validateReceipt(_ receipt: ParsedReceipt) -> (isValid: Bool, errors: [String]) {
         var errors: [String] = []
 
         // Check if items exist

@@ -40,39 +40,52 @@ class ReceiptScannerViewModel {
         do {
             // Step 1: OCR
             currentStep = "Scanning receipt with Apple Vision..."
+            print("DEBUG: Starting OCR...")
             ocrText = try await visionService.recognizeText(from: image)
+            print("DEBUG: OCR complete. Text length: \(ocrText.count)")
 
             // Step 2: Parse with LLM
             currentStep = "Parsing items with AI..."
+            print("DEBUG: Starting AI parsing...")
             guard let parser = parserService else {
                 throw ScannerError.notInitialized
             }
             parsedReceipt = try await parser.parseReceipt(ocrText: ocrText)
+            print("DEBUG: Parsing complete. Items: \(parsedReceipt?.items.count ?? 0)")
 
             // Step 3: Validate
             currentStep = "Validating data..."
+            print("DEBUG: Starting validation...")
             if let receipt = parsedReceipt {
-                let validation = await parser.validateReceipt(receipt)
+                let validation = parser.validateReceipt(receipt)
+                print("DEBUG: Validation complete. Valid: \(validation.isValid)")
                 if !validation.isValid {
                     validationErrors = validation.errors
                     showValidationWarning = true
+                    print("DEBUG: Validation errors: \(validation.errors)")
                 }
             }
+            print("DEBUG: Validation step complete")
 
             // Step 4: Generate CSV
             currentStep = "Generating CSV..."
+            print("DEBUG: Starting CSV generation...")
             let exporter = CSVExportService()
             if let receipt = parsedReceipt {
                 csvOutput = exporter.exportToCSV(receipt: receipt)
+                print("DEBUG: CSV generated. Length: \(csvOutput.count)")
             }
 
             currentStep = "Complete!"
+            print("DEBUG: All steps complete!")
         } catch {
+            print("DEBUG: Error occurred: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
             currentStep = "Error occurred"
         }
 
         isProcessing = false
+        print("DEBUG: Processing flag set to false")
     }
 
     func exportCSV() throws -> URL {
@@ -105,6 +118,9 @@ struct ContentView: View {
     @State private var showingPhotoLibrary = false
     @State private var showingSavedReceipts = false
     @State private var showingSaveConfirmation = false
+    @State private var showingProcessingView = false
+    @State private var selectedReceiptID: UUID?
+    @State private var showingReceiptDetail = false
 
     var body: some View {
         NavigationStack {
@@ -126,9 +142,9 @@ struct ContentView: View {
                     Spacer()
 
                     Button(action: {
-                        // Notification action
+                        // Menu action
                     }) {
-                        Image(systemName: "bell")
+                        Image(systemName: "line.3.horizontal")
                             .font(.system(size: 20))
                             .foregroundColor(.primary)
                             .frame(width: 32, height: 32)
@@ -141,346 +157,296 @@ struct ContentView: View {
                 Divider()
 
                 ScrollView {
-                    VStack(spacing: 20) {
-                        // Header
-          
+                    VStack(spacing: 16) {
+                        // Top spacer
+                        Color.clear.frame(height: 8)
 
-                    // Image selector - Wrapped in card
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Select Receipt Image")
-                            .font(.headline)
+                        // Account Balance Section
+                        VStack(spacing: 8) {
+                            Text("Total Receipts Value")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
 
-                        // Image source buttons
-                        HStack(spacing: 12) {
-                            Button(action: {
-                                if viewModel.parsedReceipt != nil {
-                                    viewModel.reset()
+                            Text(formatCurrency(totalReceiptsValue))
+                                .font(.system(size: 36, weight: .bold))
+
+                            Text("ID: \(savedReceipts.count) receipts")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 24)
+                        .background(Color(UIColor.systemBackground))
+                        .cornerRadius(16)
+                        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                        .padding(.horizontal)
+
+                        // Bar Chart Section
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Spending Over Time")
+                                .font(.system(size: 16, weight: .semibold))
+                                .padding(.horizontal, 16)
+                                .padding(.top, 16)
+
+                            if savedReceipts.isEmpty {
+                                Text("No receipts yet")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                                    .padding(.vertical, 40)
+                            } else {
+                                VStack(spacing: 8) {
+                                    // Vertical bar chart
+                                    GeometryReader { geometry in
+                                        HStack(alignment: .bottom, spacing: 8) {
+                                            ForEach(receiptsByDate, id: \.date) { item in
+                                                VStack(spacing: 4) {
+                                                    // Bar
+                                                    RoundedRectangle(cornerRadius: 4)
+                                                        .fill(Color.blue)
+                                                        .frame(width: max(12, (geometry.size.width - CGFloat(receiptsByDate.count - 1) * 8) / CGFloat(receiptsByDate.count)),
+                                                               height: max(20, geometry.size.height * 0.8 * CGFloat(item.percentage)))
+                                                }
+                                            }
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                    }
+                                    .frame(height: 120)
+                                    .padding(.horizontal, 16)
+
+                                    // Date labels
+                                    HStack(alignment: .top, spacing: 8) {
+                                        ForEach(receiptsByDate, id: \.date) { item in
+                                            Text(item.date)
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.secondary)
+                                                .frame(maxWidth: .infinity)
+                                                .lineLimit(1)
+                                                .minimumScaleFactor(0.7)
+                                        }
+                                    }
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 16)
                                 }
-                                showingCamera = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "camera")
-                                        .font(.system(size: 20))
-                                    
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
                             }
+                        }
+                        .background(Color(UIColor.systemBackground))
+                        .cornerRadius(16)
+                        .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                        .padding(.horizontal)
 
-                            Button(action: {
-                                if viewModel.parsedReceipt != nil {
-                                    viewModel.reset()
+                    // Action buttons card
+                    HStack(spacing: 20) {
+                        // Camera button
+                        Button(action: {
+                            if viewModel.parsedReceipt != nil {
+                                viewModel.reset()
+                            }
+                            showingCamera = true
+                        }) {
+                            VStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.gray.opacity(0.1))
+                                        .frame(width: 56, height: 56)
+
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
                                 }
-                                showingPhotoLibrary = true
-                            }) {
-                                HStack {
-                                    Image(systemName: "photo.stack")
-                                        .font(.system(size: 20))
-                                    
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
+
+                                Text("Scan")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.primary)
                             }
                         }
 
-                        // Display image
-                        if let capturedImage = capturedImage {
-                            Image(uiImage: capturedImage)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 300)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .shadow(radius: 4)
-                        } else {
+                        // Upload button
+                        Button(action: {
+                            if viewModel.parsedReceipt != nil {
+                                viewModel.reset()
+                            }
+                            showingPhotoLibrary = true
+                        }) {
+                            VStack(spacing: 8) {
+                                ZStack {
+                                    Circle()
+                                        .fill(Color.gray.opacity(0.1))
+                                        .frame(width: 56, height: 56)
+
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.primary)
+                                }
+
+                                Text("Upload")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(.primary)
+                            }
+                        }
+
+                        Spacer()
+                    }
+                    .padding(20)
+                    .background(Color(UIColor.systemBackground))
+                    .cornerRadius(16)
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+                    .padding(.horizontal)
+
+                    // Transactions Section
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text("Transactions")
+                                .font(.system(size: 18, weight: .semibold))
+
+                            Spacer()
+
+                            Button(action: {
+                                showingSavedReceipts = true
+                            }) {
+                                Text("see all")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+
+                        if savedReceipts.isEmpty {
                             VStack(spacing: 12) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 50))
-                                    .foregroundStyle(.gray)
-                                Text("No image selected")
+                                Image(systemName: "doc.text")
+                                    .font(.system(size: 40))
+                                    .foregroundColor(.gray)
+                                Text("No receipts yet")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             .frame(maxWidth: .infinity)
-                            .frame(height: 200)
-                            .background(Color.gray.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                        }
-                    }
-                    .padding(16)
-                    .background(Color(UIColor.secondarySystemGroupedBackground))
-                    .cornerRadius(12)
-                    .padding(.horizontal)
+                            .padding(.vertical, 40)
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(Array(savedReceipts.prefix(5).enumerated()), id: \.element.id) { index, receipt in
+                                    Button(action: {
+                                        selectedReceiptID = receipt.id
+                                        showingReceiptDetail = true
+                                    }) {
+                                        HStack(spacing: 12) {
+                                            // Icon
+                                            ZStack {
+                                                Circle()
+                                                    .fill(Color.gray.opacity(0.1))
+                                                    .frame(width: 40, height: 40)
 
-                    // Scan button
-                    VStack(spacing: 12) {
-                        Button(action: {
-                            Task {
-                                viewModel.initialize()
+                                                Image(systemName: "arrow.up")
+                                                    .font(.system(size: 16))
+                                                    .foregroundColor(.primary)
+                                            }
 
-                                if let image = capturedImage {
-                                    await viewModel.processReceipt(image: image)
-                                }
-                            }
-                        }) {
-                            HStack {
-                                Image(systemName: "scanner")
-                                Text("Scan & Parse Receipt")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(viewModel.isProcessing ? Color.gray : Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-                        .disabled(viewModel.isProcessing || capturedImage == nil)
-                    }
-                    .padding(.horizontal)
+                                            // Receipt info
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(receipt.storeName ?? "Unknown Store")
+                                                    .font(.system(size: 15, weight: .medium))
+                                                    .foregroundColor(.primary)
 
-                    // Status indicator
-                    if viewModel.isProcessing {
-                        VStack(spacing: 8) {
-                            ProgressView()
-                            Text(viewModel.currentStep)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding()
-                        .background(Color.blue.opacity(0.1))
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                    }
+                                                Text("Sent by you • \(formatDate(receipt.date))")
+                                                    .font(.system(size: 13))
+                                                    .foregroundColor(.secondary)
+                                            }
 
-                    // Error message
-                    if let error = viewModel.errorMessage {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle.fill")
-                                    .foregroundColor(.red)
-                                Text("Error")
-                                    .font(.headline)
-                                    .foregroundColor(.red)
-                            }
-                            Text(error)
-                                .font(.caption)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                    }
+                                            Spacer()
 
-                    // Validation warnings
-                    if viewModel.showValidationWarning && !viewModel.validationErrors.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .foregroundColor(.orange)
-                                Text("Validation Warnings")
-                                    .font(.headline)
-                                    .foregroundColor(.orange)
-                            }
-                            ForEach(viewModel.validationErrors, id: \.self) { error in
-                                Text("• \(error)")
-                                    .font(.caption)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .background(Color.orange.opacity(0.1))
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                    }
+                                            // Amount
+                                            VStack(alignment: .trailing, spacing: 2) {
+                                                Text(formatCurrency(receipt.total))
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundColor(.primary)
 
-                    // OCR Text
-                    if !viewModel.ocrText.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("OCR Text")
-                                .font(.headline)
-                            Text(viewModel.ocrText)
-                                .font(.system(.caption, design: .monospaced))
-                                .padding()
-                                .background(Color.gray.opacity(0.1))
-                                .cornerRadius(8)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.horizontal)
-                    }
+                                                Text("ID: \(receipt.id.uuidString.prefix(6))")
+                                                    .font(.system(size: 11))
+                                                    .foregroundColor(.secondary)
+                                            }
+                                        }
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 12)
+                                    }
 
-                    // Parsed Items
-                    if let receipt = viewModel.parsedReceipt {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Parsed Receipt")
-                                .font(.headline)
-
-                            if let store = receipt.storeName {
-                                HStack {
-                                    Text("Store:")
-                                        .fontWeight(.semibold)
-                                    Text(store)
-                                }
-                                .font(.caption)
-                            }
-
-                            if let date = receipt.date {
-                                HStack {
-                                    Text("Date:")
-                                        .fontWeight(.semibold)
-                                    Text(date)
-                                }
-                                .font(.caption)
-                            }
-
-                            Divider()
-
-                            Text("Items:")
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-
-                            ForEach(receipt.items) { item in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.name)
-                                        .font(.caption)
-                                        .fontWeight(.medium)
-                                    HStack {
-                                        Text("\(item.quantity, specifier: "%.0f") × $\(item.unitPrice, specifier: "%.2f")")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                        Spacer()
-                                        Text("$\(item.lineTotal, specifier: "%.2f")")
-                                            .font(.caption)
-                                            .fontWeight(.semibold)
+                                    if index < min(4, savedReceipts.count - 1) {
+                                        Divider()
+                                            .padding(.leading, 64)
                                     }
                                 }
-                                .padding(.vertical, 4)
                             }
-
-                            Divider()
-
-                            VStack(spacing: 4) {
-                                HStack {
-                                    Text("Subtotal:")
-                                    Spacer()
-                                    Text("$\(receipt.subtotal, specifier: "%.2f")")
-                                }
-                                .font(.caption)
-
-                                HStack {
-                                    Text("Tax:")
-                                    Spacer()
-                                    Text("$\(receipt.tax, specifier: "%.2f")")
-                                }
-                                .font(.caption)
-
-                                HStack {
-                                    Text("Total:")
-                                        .fontWeight(.bold)
-                                    Spacer()
-                                    Text("$\(receipt.total, specifier: "%.2f")")
-                                        .fontWeight(.bold)
-                                }
-                                .font(.callout)
-                                .padding(.top, 4)
-                            }
-                        }
-                        .padding()
-                        .background(Color.green.opacity(0.1))
-                        .cornerRadius(10)
-                        .padding(.horizontal)
-                    }
-
-                    // CSV Output
-                    if !viewModel.csvOutput.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("CSV Output")
-                                .font(.headline)
-                            Text(viewModel.csvOutput)
-                                .font(.system(.caption2, design: .monospaced))
-                                .padding()
-                                .background(Color.blue.opacity(0.1))
-                                .cornerRadius(8)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    // Action buttons at bottom
-                    VStack(spacing: 12) {
-                        if viewModel.parsedReceipt != nil {
-                            Button(action: saveReceipt) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.down")
-                                    Text("Save Receipt")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                        }
-
-                        if !viewModel.csvOutput.isEmpty {
-                            Button(action: {
-                                do {
-                                    shareURL = try viewModel.exportCSV()
-                                    showingShareSheet = true
-                                } catch {
-                                    viewModel.errorMessage = "Failed to export CSV: \(error.localizedDescription)"
-                                }
-                            }) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.up")
-                                    Text("Export CSV")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                        }
-
-                        Button(action: {
-                            showingSavedReceipts = true
-                        }) {
-                            HStack {
-                                Image(systemName: "list.bullet.rectangle")
-                                Text("View Saved (\(savedReceipts.count))")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.purple)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-
-                        if viewModel.parsedReceipt != nil {
-                            Button(action: {
-                                viewModel.reset()
-                            }) {
-                                HStack {
-                                    Image(systemName: "arrow.counterclockwise")
-                                    Text("Reset")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.orange)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
+                            .padding(.bottom, 8)
                         }
                     }
+                    .background(Color(UIColor.systemBackground))
+                    .cornerRadius(16)
+                    .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                     .padding(.horizontal)
 
+                        // Bottom spacer
+                        Color.clear.frame(height: 16)
                     }
                 }
+                .background(Color(UIColor.secondarySystemGroupedBackground))
+
+                // Bottom Navigation Bar
+                Divider()
+
+                HStack(spacing: 0) {
+                    // Home tab
+                    Button(action: {}) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "house.fill")
+                                .font(.system(size: 24))
+                            Text("Home")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.primary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+
+                    // Cards tab
+                    Button(action: {}) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "creditcard")
+                                .font(.system(size: 24))
+                            Text("Cards")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+
+                    // Analytics tab
+                    Button(action: {}) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "chart.bar")
+                                .font(.system(size: 24))
+                            Text("Analytics")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+
+                    // Settings tab
+                    Button(action: {}) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "gearshape")
+                                .font(.system(size: 24))
+                            Text("Settings")
+                                .font(.system(size: 11))
+                        }
+                        .foregroundColor(.gray)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                    }
+                }
+                .background(Color(UIColor.systemBackground))
             }
             .navigationBarHidden(true)
             .sheet(isPresented: $showingShareSheet) {
@@ -494,8 +460,35 @@ struct ContentView: View {
             .sheet(isPresented: $showingPhotoLibrary) {
                 PhotoLibraryPicker(image: $capturedImage)
             }
+            .onChange(of: capturedImage) { oldValue, newValue in
+                if newValue != nil {
+                    showingProcessingView = true
+                }
+            }
+            .onChange(of: showingProcessingView) { oldValue, newValue in
+                // Clear captured image when processing view is dismissed
+                if !newValue {
+                    capturedImage = nil
+                }
+            }
             .sheet(isPresented: $showingSavedReceipts) {
                 SavedReceiptsView()
+            }
+            .sheet(isPresented: $showingReceiptDetail) {
+                if let receiptID = selectedReceiptID {
+                    ReceiptDetailView(receiptID: receiptID)
+                }
+            }
+            .fullScreenCover(isPresented: $showingProcessingView) {
+                ReceiptProcessingView(viewModel: viewModel, capturedImage: capturedImage)
+                    .onAppear {
+                        Task {
+                            viewModel.initialize()
+                            if let image = capturedImage {
+                                await viewModel.processReceipt(image: image)
+                            }
+                        }
+                    }
             }
             .alert("Receipt Saved", isPresented: $showingSaveConfirmation) {
                 Button("OK", role: .cancel) { }
@@ -508,25 +501,92 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Helper Functions
-    private func saveReceipt() {
-        guard let receipt = viewModel.parsedReceipt else { return }
-
-        // Create SwiftData receipt from parsed receipt
-        let savedReceipt = SavedReceipt(from: receipt, ocrText: viewModel.ocrText)
-
-        // Insert into database
-        modelContext.insert(savedReceipt)
-
-        // Save to persistent store
-        do {
-            try modelContext.save()
-            showingSaveConfirmation = true
-            viewModel.currentStep = "Receipt saved!"
-        } catch {
-            viewModel.errorMessage = "Failed to save: \(error.localizedDescription)"
-        }
+    // MARK: - Computed Properties
+    private var totalReceiptsValue: Double {
+        savedReceipts.reduce(0) { $0 + $1.total }
     }
+
+    private var receiptsByStore: [(store: String, total: Double, percentage: Double)] {
+        let maxTotal = savedReceipts.reduce(0.0) { max($0, $1.total) }
+        guard maxTotal > 0 else { return [] }
+
+        let grouped = Dictionary(grouping: savedReceipts) { $0.storeName ?? "Unknown" }
+        return grouped.map { (store, receipts) in
+            let total = receipts.reduce(0) { $0 + $1.total }
+            return (store: store, total: total, percentage: total / maxTotal)
+        }
+        .sorted { $0.total > $1.total }
+        .prefix(5)
+        .map { $0 }
+    }
+
+    private var receiptsByDate: [(date: String, total: Double, percentage: Double)] {
+        let maxTotal = savedReceipts.reduce(0.0) { max($0, $1.total) }
+        guard maxTotal > 0 else { return [] }
+
+        // Group receipts by date
+        let grouped = Dictionary(grouping: savedReceipts) { receipt -> String in
+            guard let dateString = receipt.date else { return "Unknown" }
+
+            // Parse and format the date to just show MM/dd
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+
+            if let date = dateFormatter.date(from: dateString) {
+                dateFormatter.dateFormat = "MM/dd"
+                return dateFormatter.string(from: date)
+            }
+
+            return dateString
+        }
+
+        // Calculate totals and percentages, then sort by date (oldest to newest)
+        return grouped.map { (dateStr, receipts) -> (date: String, total: Double, percentage: Double, sortDate: Date?) in
+            let total = receipts.reduce(0) { $0 + $1.total }
+
+            // Parse date for sorting
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MM/dd"
+            let sortDate = dateFormatter.date(from: dateStr)
+
+            return (date: dateStr, total: total, percentage: total / maxTotal, sortDate: sortDate)
+        }
+        .sorted { (item1, item2) in
+            // Sort by date, with nil dates at the end
+            if let date1 = item1.sortDate, let date2 = item2.sortDate {
+                return date1 < date2  // Oldest to newest (latest on the right)
+            } else if item1.sortDate != nil {
+                return true
+            } else {
+                return false
+            }
+        }
+        .map { (date: $0.date, total: $0.total, percentage: $0.percentage) }
+    }
+
+    private func formatCurrency(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencySymbol = "$"
+        return formatter.string(from: NSNumber(value: value)) ?? "$0.00"
+    }
+
+    private func formatDate(_ dateString: String?) -> String {
+        guard let dateString = dateString else { return "Unknown date" }
+
+        // Try to parse the date string and format it
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        if let date = dateFormatter.date(from: dateString) {
+            dateFormatter.dateFormat = "MMM dd"
+            return dateFormatter.string(from: date)
+        }
+
+        // If parsing fails, return the original string
+        return dateString
+    }
+
 }
 
 // MARK: - Share Sheet
