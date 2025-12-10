@@ -98,14 +98,11 @@ struct ContentView: View {
     private var savedReceipts: [SavedReceipt]
 
     @State private var viewModel = ReceiptScannerViewModel()
-    @State private var selectedImage: String = "IMG_8168"
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
     @State private var capturedImage: UIImage?
     @State private var showingCamera = false
     @State private var showingPhotoLibrary = false
-    @State private var showingImageSourcePicker = false
-    @State private var imageSourceType: ImageSourceType = .assets
     @State private var showingSavedReceipts = false
     @State private var showingSaveConfirmation = false
 
@@ -148,43 +145,48 @@ struct ContentView: View {
                         // Header
           
 
-                    // Image selector
-                    VStack(alignment: .leading, spacing: 8) {
+                    // Image selector - Wrapped in card
+                    VStack(alignment: .leading, spacing: 12) {
                         Text("Select Receipt Image")
                             .font(.headline)
 
-                        // Image source picker
-                        Picker("Image Source", selection: $imageSourceType) {
-                            Text("Test Images").tag(ImageSourceType.assets)
-
-                            Text("Camera").tag(ImageSourceType.camera)
-                            Text("Photo Library").tag(ImageSourceType.photoLibrary)
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: imageSourceType) { _, newValue in
-                            // Reset parsed results when switching modes
-                            if viewModel.parsedReceipt != nil {
-                                viewModel.reset()
-                            }
-
-                            switch newValue {
-                            case .camera:
+                        // Image source buttons
+                        HStack(spacing: 12) {
+                            Button(action: {
+                                if viewModel.parsedReceipt != nil {
+                                    viewModel.reset()
+                                }
                                 showingCamera = true
-                            case .photoLibrary:
+                            }) {
+                                HStack {
+                                    Image(systemName: "camera")
+                                        .font(.system(size: 20))
+                                    
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
+
+                            Button(action: {
+                                if viewModel.parsedReceipt != nil {
+                                    viewModel.reset()
+                                }
                                 showingPhotoLibrary = true
-                            case .assets:
-                                capturedImage = nil
+                            }) {
+                                HStack {
+                                    Image(systemName: "photo.stack")
+                                        .font(.system(size: 20))
+                                    
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
                             }
-                        }
-
-
-                        // Asset picker (only shown when using test images)
-                        if imageSourceType == .assets {
-                            Picker("Select Receipt", selection: $selectedImage) {
-                                Text("Receipt 1 (IMG_8168)").tag("IMG_8168")
-                                Text("Receipt 2 (IMG_8171)").tag("IMG_8171")
-                            }
-                            .pickerStyle(.segmented)
                         }
 
                         // Display image
@@ -195,56 +197,33 @@ struct ContentView: View {
                                 .frame(maxHeight: 300)
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
                                 .shadow(radius: 4)
-                        } else if imageSourceType == .assets, let image = UIImage(named: selectedImage) {
-                            Image(uiImage: image)
-                                .resizable()
-                                .scaledToFit()
-                                .frame(maxHeight: 300)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .shadow(radius: 4)
-                        } else if imageSourceType != .assets {
-                            Button(action: {
-                                switch imageSourceType {
-                                case .camera:
-                                    showingCamera = true
-                                case .photoLibrary:
-                                    showingPhotoLibrary = true
-                                case .assets:
-                                    break
-                                }
-                            }) {
-                                VStack(spacing: 12) {
-                                    Image(systemName: imageSourceType == .camera ? "camera.fill" : "photo.fill")
-                                        .font(.system(size: 50))
-                                        .foregroundStyle(.gray)
-                                    Text(imageSourceType == .camera ? "Tap to Take Photo" : "Tap to Choose Photo")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 200)
-                                .background(Color.gray.opacity(0.1))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        } else {
+                            VStack(spacing: 12) {
+                                Image(systemName: "photo")
+                                    .font(.system(size: 50))
+                                    .foregroundStyle(.gray)
+                                Text("No image selected")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 200)
+                            .background(Color.gray.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     }
+                    .padding(16)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+                    .cornerRadius(12)
                     .padding(.horizontal)
 
-                    // Action buttons
+                    // Scan button
                     VStack(spacing: 12) {
                         Button(action: {
                             Task {
                                 viewModel.initialize()
 
-                                let imageToProcess: UIImage?
-                                switch imageSourceType {
-                                case .assets:
-                                    imageToProcess = UIImage(named: selectedImage)
-                                case .camera, .photoLibrary:
-                                    imageToProcess = capturedImage
-                                }
-
-                                if let image = imageToProcess {
+                                if let image = capturedImage {
                                     await viewModel.processReceipt(image: image)
                                 }
                             }
@@ -259,72 +238,7 @@ struct ContentView: View {
                             .foregroundColor(.white)
                             .cornerRadius(10)
                         }
-                        .disabled(viewModel.isProcessing || (imageSourceType != .assets && capturedImage == nil))
-
-                        if viewModel.parsedReceipt != nil {
-                            Button(action: saveReceipt) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.down")
-                                    Text("Save Receipt")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.blue)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                        }
-
-                        if !viewModel.csvOutput.isEmpty {
-                            Button(action: {
-                                do {
-                                    shareURL = try viewModel.exportCSV()
-                                    showingShareSheet = true
-                                } catch {
-                                    viewModel.errorMessage = "Failed to export CSV: \(error.localizedDescription)"
-                                }
-                            }) {
-                                HStack {
-                                    Image(systemName: "square.and.arrow.up")
-                                    Text("Export CSV")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.green)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                        }
-
-                        Button(action: {
-                            showingSavedReceipts = true
-                        }) {
-                            HStack {
-                                Image(systemName: "list.bullet.rectangle")
-                                Text("View Saved (\(savedReceipts.count))")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.purple)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-
-                        if viewModel.parsedReceipt != nil {
-                            Button(action: {
-                                viewModel.reset()
-                            }) {
-                                HStack {
-                                    Image(systemName: "arrow.counterclockwise")
-                                    Text("Reset")
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.orange)
-                                .foregroundColor(.white)
-                                .cornerRadius(10)
-                            }
-                        }
+                        .disabled(viewModel.isProcessing || capturedImage == nil)
                     }
                     .padding(.horizontal)
 
@@ -496,6 +410,75 @@ struct ContentView: View {
                         .padding(.horizontal)
                     }
 
+                    // Action buttons at bottom
+                    VStack(spacing: 12) {
+                        if viewModel.parsedReceipt != nil {
+                            Button(action: saveReceipt) {
+                                HStack {
+                                    Image(systemName: "square.and.arrow.down")
+                                    Text("Save Receipt")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.blue)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
+                        }
+
+                        if !viewModel.csvOutput.isEmpty {
+                            Button(action: {
+                                do {
+                                    shareURL = try viewModel.exportCSV()
+                                    showingShareSheet = true
+                                } catch {
+                                    viewModel.errorMessage = "Failed to export CSV: \(error.localizedDescription)"
+                                }
+                            }) {
+                                HStack {
+                                    Image(systemName: "square.and.arrow.up")
+                                    Text("Export CSV")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
+                        }
+
+                        Button(action: {
+                            showingSavedReceipts = true
+                        }) {
+                            HStack {
+                                Image(systemName: "list.bullet.rectangle")
+                                Text("View Saved (\(savedReceipts.count))")
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.purple)
+                            .foregroundColor(.white)
+                            .cornerRadius(10)
+                        }
+
+                        if viewModel.parsedReceipt != nil {
+                            Button(action: {
+                                viewModel.reset()
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.counterclockwise")
+                                    Text("Reset")
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(Color.orange)
+                                .foregroundColor(.white)
+                                .cornerRadius(10)
+                            }
+                        }
+                    }
+                    .padding(.horizontal)
+
                     }
                 }
             }
@@ -507,19 +490,9 @@ struct ContentView: View {
             }
             .sheet(isPresented: $showingCamera) {
                 CameraPicker(image: $capturedImage)
-                    .onDisappear {
-                        if capturedImage == nil {
-                            imageSourceType = .assets
-                        }
-                    }
             }
             .sheet(isPresented: $showingPhotoLibrary) {
                 PhotoLibraryPicker(image: $capturedImage)
-                    .onDisappear {
-                        if capturedImage == nil {
-                            imageSourceType = .assets
-                        }
-                    }
             }
             .sheet(isPresented: $showingSavedReceipts) {
                 SavedReceiptsView()

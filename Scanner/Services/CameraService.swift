@@ -91,5 +91,4 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
 enum ImageSourceType {
     case camera
     case photoLibrary
-    case assets
 }
