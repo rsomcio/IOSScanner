@@ -144,6 +144,8 @@ struct ReceiptDetailView: View {
     @State private var receipt: SavedReceipt?
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
+    @State private var isEditing = false
+    @State private var editableReceipt: EditableReceipt?
 
     var body: some View {
         Group {
@@ -184,9 +186,18 @@ struct ReceiptDetailView: View {
     private func receiptDetailContent(receipt: SavedReceipt) -> some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    // Store info
-                    VStack(spacing: 8) {
+                if isEditing, let editable = editableReceipt {
+                    // Show editable form when editing
+                    EditableReceiptForm(receipt: Binding(
+                        get: { editable },
+                        set: { editableReceipt = $0 }
+                    ))
+                    .padding(.vertical)
+                } else {
+                    // Show read-only view when not editing
+                    VStack(spacing: 20) {
+                        // Store info
+                        VStack(spacing: 8) {
                         Image(systemName: "storefront")
                             .font(.system(size: 50))
                             .foregroundStyle(.blue)
@@ -299,14 +310,31 @@ struct ReceiptDetailView: View {
                     }
                     .padding(.horizontal)
                     .padding(.bottom)
+                    }
                 }
             }
-            .navigationTitle("Receipt Details")
+            .navigationTitle(isEditing ? "Edit Receipt" : "Receipt Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if isEditing {
+                        Button("Cancel") {
+                            isEditing = false
+                            editableReceipt = nil
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                    if isEditing {
+                        Button("Save") {
+                            saveEdits()
+                        }
+                        .fontWeight(.semibold)
+                    } else {
+                        Button("Edit") {
+                            toggleEditMode()
+                        }
                     }
                 }
             }
@@ -315,6 +343,46 @@ struct ReceiptDetailView: View {
                     ShareSheet(items: [url])
                 }
             }
+        }
+    }
+
+    private func toggleEditMode() {
+        guard let receipt = receipt else { return }
+        editableReceipt = EditableReceipt(from: receipt)
+        isEditing = true
+    }
+
+    private func saveEdits() {
+        guard let receipt = receipt,
+              let editable = editableReceipt else { return }
+
+        // Update receipt properties
+        receipt.storeName = editable.storeName
+        receipt.date = editable.date
+        receipt.tax = editable.tax
+        receipt.subtotal = editable.subtotal
+        receipt.total = editable.total
+
+        // Replace all items (cascade delete handles cleanup)
+        receipt.items.removeAll()
+        for editableItem in editable.items {
+            let newItem = SavedReceiptItem(
+                name: editableItem.name,
+                quantity: editableItem.quantity,
+                unitPrice: editableItem.unitPrice,
+                lineTotal: editableItem.lineTotal
+            )
+            receipt.items.append(newItem)
+        }
+
+        // Save to database
+        do {
+            try modelContext.save()
+            isEditing = false
+            editableReceipt = nil
+        } catch {
+            print("Error saving edits: \(error)")
+            // TODO: Show error alert
         }
     }
 

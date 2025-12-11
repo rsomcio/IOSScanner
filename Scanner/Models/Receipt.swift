@@ -10,11 +10,11 @@ import SwiftData
 
 // MARK: - API Response Models (Temporary, for parsing)
 struct ReceiptItem: Codable, Identifiable {
-    let id = UUID()
-    let name: String
-    let quantity: Double
-    let unitPrice: Double
-    let lineTotal: Double
+    var id = UUID()
+    var name: String
+    var quantity: Double
+    var unitPrice: Double
+    var lineTotal: Double
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -25,12 +25,12 @@ struct ReceiptItem: Codable, Identifiable {
 }
 
 struct ParsedReceipt: Codable {
-    let storeName: String?
-    let date: String?
-    let items: [ReceiptItem]
-    let subtotal: Double
-    let tax: Double
-    let total: Double
+    var storeName: String?
+    var date: String?
+    var items: [ReceiptItem]
+    var subtotal: Double
+    var tax: Double
+    var total: Double
 
     enum CodingKeys: String, CodingKey {
         case storeName
