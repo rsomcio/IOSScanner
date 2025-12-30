@@ -12,11 +12,32 @@ struct SavedReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \SavedReceipt.createdAt, order: .reverse)
-    private var receipts: [SavedReceipt]
+    private var allReceipts: [SavedReceipt]
+    @Query private var userAccounts: [UserAccount]
 
-    @State private var selectedReceipt: SavedReceipt?
+    @State private var selectedReceiptID: UUID?
     @State private var showingDetail = false
     @State private var searchText = ""
+
+    // User session for tracking current user
+    private var userSession = UserSession.shared
+
+    private var currentUser: UserAccount? {
+        userAccounts.first(where: { $0.email == userSession.currentUserEmail })
+    }
+
+    // Filter receipts to show only current user's receipts OR receipts with no owner (shared/legacy)
+    private var receipts: [SavedReceipt] {
+        guard let currentEmail = userSession.currentUserEmail else {
+            // No user logged in, show all receipts with no owner
+            return allReceipts.filter { $0.owner == nil }
+        }
+
+        // Show receipts owned by current user OR receipts with no owner
+        return allReceipts.filter { receipt in
+            receipt.owner == nil || receipt.owner?.email == currentEmail
+        }
+    }
 
     var filteredReceipts: [SavedReceipt] {
         if searchText.isEmpty {
@@ -51,7 +72,7 @@ struct SavedReceiptsView: View {
                             ReceiptRowView(receipt: receipt)
                                 .contentShape(Rectangle())
                                 .onTapGesture {
-                                    selectedReceipt = receipt
+                                    selectedReceiptID = receipt.id
                                     showingDetail = true
                                 }
                         }
@@ -76,8 +97,8 @@ struct SavedReceiptsView: View {
                 }
             }
             .sheet(isPresented: $showingDetail) {
-                if let receipt = selectedReceipt {
-                    ReceiptDetailView(receipt: receipt)
+                if let receiptID = selectedReceiptID {
+                    ReceiptDetailView(receiptID: receiptID)
                 }
             }
         }
@@ -137,17 +158,67 @@ struct ReceiptRowView: View {
 // MARK: - Receipt Detail View
 struct ReceiptDetailView: View {
     @Environment(\.dismiss) private var dismiss
-    let receipt: SavedReceipt
+    @Environment(\.modelContext) private var modelContext
 
+    let receiptID: UUID
+
+    @State private var receipt: SavedReceipt?
     @State private var showingShareSheet = false
     @State private var shareURL: URL?
+    @State private var isEditing = false
+    @State private var editableReceipt: EditableReceipt?
 
     var body: some View {
+        Group {
+            if let receipt = receipt {
+                receiptDetailContent(receipt: receipt)
+            } else {
+                VStack {
+                    ProgressView()
+                    Text("Loading...")
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .onAppear {
+            loadReceipt()
+        }
+    }
+
+    private func loadReceipt() {
+        // Explicitly fetch the receipt with its relationships
+        let descriptor = FetchDescriptor<SavedReceipt>(
+            predicate: #Predicate { $0.id == receiptID }
+        )
+
+        do {
+            let results = try modelContext.fetch(descriptor)
+            if let fetchedReceipt = results.first {
+                // Access the items to force load the relationship
+                _ = fetchedReceipt.items.count
+                receipt = fetchedReceipt
+            }
+        } catch {
+            print("Error fetching receipt: \(error)")
+        }
+    }
+
+    @ViewBuilder
+    private func receiptDetailContent(receipt: SavedReceipt) -> some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
-                    // Store info
-                    VStack(spacing: 8) {
+                if isEditing, let editable = editableReceipt {
+                    // Show editable form when editing
+                    EditableReceiptForm(receipt: Binding(
+                        get: { editable },
+                        set: { editableReceipt = $0 }
+                    ))
+                    .padding(.vertical)
+                } else {
+                    // Show read-only view when not editing
+                    VStack(spacing: 20) {
+                        // Store info
+                        VStack(spacing: 8) {
                         Image(systemName: "storefront")
                             .font(.system(size: 50))
                             .foregroundStyle(.blue)
@@ -176,9 +247,28 @@ struct ReceiptDetailView: View {
 
                         ForEach(receipt.items) { item in
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(item.name)
-                                    .font(.body)
-                                    .fontWeight(.medium)
+                                HStack {
+                                    Text(item.name)
+                                        .font(.body)
+                                        .fontWeight(.medium)
+
+                                    Spacer()
+
+                                    // Category badge
+                                    if let category = ItemCategory(rawValue: item.category) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: category.icon)
+                                                .font(.system(size: 9))
+                                            Text(category.rawValue)
+                                                .font(.system(size: 9, weight: .medium))
+                                        }
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(category.color.opacity(0.2))
+                                        .foregroundColor(category.color)
+                                        .cornerRadius(4)
+                                    }
+                                }
                                 HStack {
                                     Text("\(item.quantity, specifier: "%.0f") × $\(item.unitPrice, specifier: "%.2f")")
                                         .font(.caption)
@@ -247,7 +337,7 @@ struct ReceiptDetailView: View {
                     }
 
                     // Export button
-                    Button(action: exportCSV) {
+                    Button(action: { exportCSV(receipt: receipt) }) {
                         HStack {
                             Image(systemName: "square.and.arrow.up")
                             Text("Export as CSV")
@@ -260,14 +350,31 @@ struct ReceiptDetailView: View {
                     }
                     .padding(.horizontal)
                     .padding(.bottom)
+                    }
                 }
             }
-            .navigationTitle("Receipt Details")
+            .navigationTitle(isEditing ? "Edit Receipt" : "Receipt Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if isEditing {
+                        Button("Cancel") {
+                            isEditing = false
+                            editableReceipt = nil
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
+                    if isEditing {
+                        Button("Save") {
+                            saveEdits()
+                        }
+                        .fontWeight(.semibold)
+                    } else {
+                        Button("Edit") {
+                            toggleEditMode()
+                        }
                     }
                 }
             }
@@ -279,7 +386,50 @@ struct ReceiptDetailView: View {
         }
     }
 
-    private func exportCSV() {
+    private func toggleEditMode() {
+        guard let receipt = receipt else { return }
+        editableReceipt = EditableReceipt(from: receipt)
+        isEditing = true
+    }
+
+    private func saveEdits() {
+        guard let receipt = receipt,
+              let editable = editableReceipt else { return }
+
+        // Update receipt properties
+        receipt.storeName = editable.storeName
+        receipt.date = editable.date
+        receipt.tax = editable.tax
+        receipt.subtotal = editable.subtotal
+        receipt.total = editable.total
+
+        // Replace all items (cascade delete handles cleanup)
+        receipt.items.removeAll()
+        for editableItem in editable.items {
+            let newItem = SavedReceiptItem(
+                name: editableItem.name,
+                quantity: editableItem.quantity,
+                unitPrice: editableItem.unitPrice,
+                lineTotal: editableItem.lineTotal,
+                discountType: editableItem.discountType.rawValue,
+                discountValue: editableItem.discountValue,
+                category: editableItem.category.rawValue
+            )
+            receipt.items.append(newItem)
+        }
+
+        // Save to database
+        do {
+            try modelContext.save()
+            isEditing = false
+            editableReceipt = nil
+        } catch {
+            print("Error saving edits: \(error)")
+            // TODO: Show error alert
+        }
+    }
+
+    private func exportCSV(receipt: SavedReceipt) {
         let exporter = CSVExportService()
 
         // Convert SavedReceipt to ParsedReceipt for CSV export
@@ -291,7 +441,10 @@ struct ReceiptDetailView: View {
                     name: item.name,
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
-                    lineTotal: item.lineTotal
+                    lineTotal: item.lineTotal,
+                    discountType: DiscountType(rawValue: item.discountType) ?? .none,
+                    discountValue: item.discountValue,
+                    category: ItemCategory(rawValue: item.category) ?? .other
                 )
             },
             subtotal: receipt.subtotal,

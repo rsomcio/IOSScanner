@@ -12,8 +12,13 @@ import SwiftData
 struct ScannerApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            OnboardingContainerView()
         }
-        .modelContainer(for: [SavedReceipt.self, SavedReceiptItem.self])
+        .modelContainer(for: [
+            UserAccount.self,
+            UserPurpose.self,
+            SavedReceipt.self,
+            SavedReceiptItem.self
+        ])
     }
 }

@@ -64,9 +64,29 @@ actor ReceiptParserService {
                             "lineTotal": [
                                 "type": "number",
                                 "description": "Total for this line (quantity × unitPrice)"
+                            ],
+                            "discountType": [
+                                "type": "string",
+                                "description": "Type of discount: 'none', 'dollar', or 'percentage' (default: 'none')",
+                                "enum": ["none", "dollar", "percentage"]
+                            ],
+                            "discountValue": [
+                                "type": "number",
+                                "description": "Discount amount in dollars or percentage (default: 0.0)"
+                            ],
+                            "category": [
+                                "type": "string",
+                                "description": "Product category based on item name",
+                                "enum": [
+                                    "Produce", "Dairy & Eggs", "Meat & Seafood", "Bakery",
+                                    "Beverages", "Pantry & Dry Goods", "Frozen Foods",
+                                    "Snacks & Candy", "Household & Cleaning", "Personal Care",
+                                    "Health & Pharmacy", "Baby & Kids", "Pet Supplies",
+                                    "Deli & Prepared Foods", "Alcohol & Wine", "Other"
+                                ]
                             ]
                         ],
-                        "required": ["name", "quantity", "unitPrice", "lineTotal"],
+                        "required": ["name", "quantity", "unitPrice", "lineTotal", "discountType", "discountValue", "category"],
                         "additionalProperties": false
                     ]
                 ],
@@ -98,11 +118,49 @@ actor ReceiptParserService {
         5. Ignore non-item lines like subtotal, tax, total (extract those separately)
         6. Extract store name if present (usually at top of receipt)
         7. Extract date in YYYY-MM-DD format if present
+        8. For discount fields: always use discountType="none" and discountValue=0.0
+        9. CATEGORIZE each item based on its name using these rules:
+
+        CATEGORY RULES:
+        - "Produce": Fresh fruits, vegetables (bananas, apples, lettuce, tomatoes, onions, carrots, berries, oranges)
+        - "Dairy & Eggs": Milk, cheese, yogurt, eggs, butter, cream, sour cream, cottage cheese
+        - "Meat & Seafood": Beef, chicken, pork, fish, turkey, shrimp, deli meats, ground meat
+        - "Bakery": Bread, rolls, bagels, pastries, cakes, muffins, donuts, croissants
+        - "Beverages": Juice, soda, coffee, tea, water, energy drinks, sports drinks, wine coolers
+        - "Pantry & Dry Goods": Pasta, rice, flour, canned goods, cereals, oatmeal, beans, soup
+        - "Frozen Foods": Ice cream, frozen meals, frozen pizza, frozen vegetables, popsicles
+        - "Snacks & Candy": Chips, cookies, candy, crackers, popcorn, nuts, pretzels
+        - "Household & Cleaning": Detergent, paper towels, trash bags, cleaners, dish soap, sponges
+        - "Personal Care": Shampoo, soap, toothpaste, deodorant, lotion, razors, cosmetics
+        - "Health & Pharmacy": Vitamins, medicine, first aid, bandages, aspirin, supplements
+        - "Baby & Kids": Diapers, formula, baby food, wipes, baby powder
+        - "Pet Supplies": Pet food, treats, litter, toys, pet shampoo
+        - "Deli & Prepared Foods": Ready-to-eat meals, rotisserie chicken, sandwiches, salads
+        - "Alcohol & Wine": Beer, wine, spirits, liquor
+        - "Other": If unsure or doesn't fit above categories
+
+        CATEGORIZATION EXAMPLES:
+        "BANANAS" → "Produce"
+        "MILK 1%" → "Dairy & Eggs"
+        "CHICKEN BREAST" → "Meat & Seafood"
+        "COCA COLA" → "Beverages"
+        "TIDE DETERGENT" → "Household & Cleaning"
+        "CHEERIOS" → "Pantry & Dry Goods"
+        "BEN & JERRY ICE CREAM" → "Frozen Foods"
+        "DORITOS" → "Snacks & Candy"
+        "DOVE SOAP" → "Personal Care"
+        "ADVIL" → "Health & Pharmacy"
+        "PAMPERS DIAPERS" → "Baby & Kids"
+        "DOG FOOD" → "Pet Supplies"
+        "ROTISSERIE CHICKEN" → "Deli & Prepared Foods"
+        "BEER 6 PACK" → "Alcohol & Wine"
 
         IMPORTANT:
         - Return ONLY valid JSON matching the provided schema
         - All prices must be positive numbers with proper decimal format
-        - If a field cannot be determined, use null for strings or 0 for required numbers
+        - Always set discountType to "none" and discountValue to 0.0
+        - ALWAYS assign a category to each item based on the item name
+        - If uncertain about category, use "Other"
         """
 
         let userPrompt = "Parse this receipt and extract all items:\n\n\(ocrText)"
@@ -180,7 +238,7 @@ actor ReceiptParserService {
     /// Validate parsed receipt data
     /// - Parameter receipt: ParsedReceipt to validate
     /// - Returns: Tuple of (isValid, errors)
-    func validateReceipt(_ receipt: ParsedReceipt) -> (isValid: Bool, errors: [String]) {
+    nonisolated func validateReceipt(_ receipt: ParsedReceipt) -> (isValid: Bool, errors: [String]) {
         var errors: [String] = []
 
         // Check if items exist
