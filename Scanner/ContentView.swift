@@ -108,7 +108,8 @@ class ReceiptScannerViewModel {
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \SavedReceipt.createdAt, order: .reverse)
-    private var savedReceipts: [SavedReceipt]
+    private var allReceipts: [SavedReceipt]
+    @Query private var userAccounts: [UserAccount]
 
     @State private var viewModel = ReceiptScannerViewModel()
     @State private var showingShareSheet = false
@@ -121,6 +122,29 @@ struct ContentView: View {
     @State private var showingProcessingView = false
     @State private var selectedReceiptID: UUID?
     @State private var showingReceiptDetail = false
+    @State private var showingProfileMenu = false
+    @State private var showingProfile = false
+    @State private var showingSwitchProfile = false
+
+    // User session for tracking current user
+    private var userSession = UserSession.shared
+
+    private var currentUser: UserAccount? {
+        userAccounts.first(where: { $0.email == userSession.currentUserEmail })
+    }
+
+    // Filter receipts to show only current user's receipts OR receipts with no owner (shared/legacy)
+    private var savedReceipts: [SavedReceipt] {
+        guard let currentEmail = userSession.currentUserEmail else {
+            // No user logged in, show all receipts with no owner
+            return allReceipts.filter { $0.owner == nil }
+        }
+
+        // Show receipts owned by current user OR receipts with no owner
+        return allReceipts.filter { receipt in
+            receipt.owner == nil || receipt.owner?.email == currentEmail
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -132,27 +156,46 @@ struct ContentView: View {
                     }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.primary)
+                            .foregroundColor(Color.onboardingText)
                             .frame(width: 32, height: 32)
                     }
 
-                    Text("Welcome to Recibo")
-                        .font(.system(size: 17, weight: .regular))
+                    Text(currentUser != nil ? "Welcome back, \(currentUser?.fullName ?? "User")" : "Welcome to Recibo")
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundColor(Color.onboardingText)
 
                     Spacer()
 
-                    Button(action: {
-                        // Menu action
-                    }) {
+                    Menu {
+                        Button(action: {
+                            showingProfile = true
+                        }) {
+                            Label("View Profile", systemImage: "person.circle")
+                        }
+
+                        Button(action: {
+                            showingSwitchProfile = true
+                        }) {
+                            Label("Switch Profile", systemImage: "arrow.left.arrow.right.circle")
+                        }
+
+                        Divider()
+
+                        Button(role: .destructive, action: {
+                            logOff()
+                        }) {
+                            Label("Log Off", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                    } label: {
                         Image(systemName: "line.3.horizontal")
                             .font(.system(size: 20))
-                            .foregroundColor(.primary)
+                            .foregroundColor(Color.onboardingText)
                             .frame(width: 32, height: 32)
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
-                .background(Color(UIColor.systemBackground))
+                .background(Color.onboardingBackground)
 
                 Divider()
 
@@ -164,19 +207,20 @@ struct ContentView: View {
                         // Account Balance Section
                         VStack(spacing: 8) {
                             Text("Total Receipts Value")
-                                .font(.system(size: 14))
-                                .foregroundColor(.secondary)
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundColor(Color.black.opacity(0.6))
 
                             Text(formatCurrency(totalReceiptsValue))
-                                .font(.system(size: 36, weight: .bold))
+                                .font(.system(size: 36, weight: .bold, design: .rounded))
+                                .foregroundColor(Color.onboardingText)
 
-                            Text("ID: \(savedReceipts.count) receipts")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                            Text("\(savedReceipts.count) receipts")
+                                .font(.system(size: 12, weight: .regular, design: .rounded))
+                                .foregroundColor(Color.black.opacity(0.5))
                         }
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 24)
-                        .background(Color(UIColor.systemBackground))
+                        .background(Color.white)
                         .cornerRadius(16)
                         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                         .padding(.horizontal)
@@ -184,14 +228,15 @@ struct ContentView: View {
                         // Bar Chart Section
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Spending Over Time")
-                                .font(.system(size: 16, weight: .semibold))
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.onboardingText)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
 
                             if savedReceipts.isEmpty {
                                 Text("No receipts yet")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                    .foregroundColor(Color.black.opacity(0.5))
                                     .frame(maxWidth: .infinity, alignment: .center)
                                     .padding(.vertical, 40)
                             } else {
@@ -203,7 +248,7 @@ struct ContentView: View {
                                                 VStack(spacing: 4) {
                                                     // Bar
                                                     RoundedRectangle(cornerRadius: 4)
-                                                        .fill(Color.blue)
+                                                        .fill(Color.onboardingPrimary)
                                                         .frame(width: max(12, (geometry.size.width - CGFloat(receiptsByDate.count - 1) * 8) / CGFloat(receiptsByDate.count)),
                                                                height: max(20, geometry.size.height * 0.8 * CGFloat(item.percentage)))
                                                 }
@@ -218,8 +263,8 @@ struct ContentView: View {
                                     HStack(alignment: .top, spacing: 8) {
                                         ForEach(receiptsByDate, id: \.date) { item in
                                             Text(item.date)
-                                                .font(.system(size: 10))
-                                                .foregroundColor(.secondary)
+                                                .font(.system(size: 10, weight: .regular, design: .rounded))
+                                                .foregroundColor(Color.black.opacity(0.6))
                                                 .frame(maxWidth: .infinity)
                                                 .lineLimit(1)
                                                 .minimumScaleFactor(0.7)
@@ -230,7 +275,7 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .background(Color(UIColor.systemBackground))
+                        .background(Color.white)
                         .cornerRadius(16)
                         .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                         .padding(.horizontal)
@@ -247,17 +292,17 @@ struct ContentView: View {
                             VStack(spacing: 8) {
                                 ZStack {
                                     Circle()
-                                        .fill(Color.gray.opacity(0.1))
+                                        .fill(Color.onboardingSecondary)
                                         .frame(width: 56, height: 56)
 
                                     Image(systemName: "camera.fill")
                                         .font(.system(size: 24))
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(Color.onboardingPrimary)
                                 }
 
                                 Text("Scan")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.primary)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(Color.onboardingText)
                             }
                         }
 
@@ -271,24 +316,24 @@ struct ContentView: View {
                             VStack(spacing: 8) {
                                 ZStack {
                                     Circle()
-                                        .fill(Color.gray.opacity(0.1))
+                                        .fill(Color.onboardingSecondary)
                                         .frame(width: 56, height: 56)
 
                                     Image(systemName: "arrow.up.circle.fill")
                                         .font(.system(size: 24))
-                                        .foregroundColor(.primary)
+                                        .foregroundColor(Color.onboardingPrimary)
                                 }
 
                                 Text("Upload")
-                                    .font(.system(size: 13))
-                                    .foregroundColor(.primary)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                    .foregroundColor(Color.onboardingText)
                             }
                         }
 
                         Spacer()
                     }
                     .padding(20)
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color.white)
                     .cornerRadius(16)
                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                     .padding(.horizontal)
@@ -297,7 +342,8 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 16) {
                         HStack {
                             Text("Transactions")
-                                .font(.system(size: 18, weight: .semibold))
+                                .font(.system(size: 18, weight: .semibold, design: .rounded))
+                                .foregroundColor(Color.onboardingText)
 
                             Spacer()
 
@@ -305,8 +351,8 @@ struct ContentView: View {
                                 showingSavedReceipts = true
                             }) {
                                 Text("see all")
-                                    .font(.system(size: 14))
-                                    .foregroundColor(.blue)
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundColor(Color.onboardingPrimary)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -316,10 +362,10 @@ struct ContentView: View {
                             VStack(spacing: 12) {
                                 Image(systemName: "doc.text")
                                     .font(.system(size: 40))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(Color.onboardingPrimary.opacity(0.4))
                                 Text("No receipts yet")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
+                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                    .foregroundColor(Color.black.opacity(0.5))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 40)
@@ -334,23 +380,23 @@ struct ContentView: View {
                                             // Icon
                                             ZStack {
                                                 Circle()
-                                                    .fill(Color.gray.opacity(0.1))
+                                                    .fill(Color.onboardingSecondary)
                                                     .frame(width: 40, height: 40)
 
                                                 Image(systemName: "arrow.up")
                                                     .font(.system(size: 16))
-                                                    .foregroundColor(.primary)
+                                                    .foregroundColor(Color.onboardingPrimary)
                                             }
 
                                             // Receipt info
                                             VStack(alignment: .leading, spacing: 2) {
                                                 Text(receipt.storeName ?? "Unknown Store")
-                                                    .font(.system(size: 15, weight: .medium))
-                                                    .foregroundColor(.primary)
+                                                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                                                    .foregroundColor(Color.onboardingText)
 
                                                 Text("Sent by you • \(formatDate(receipt.date))")
-                                                    .font(.system(size: 13))
-                                                    .foregroundColor(.secondary)
+                                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                                    .foregroundColor(Color.black.opacity(0.5))
                                             }
 
                                             Spacer()
@@ -358,12 +404,12 @@ struct ContentView: View {
                                             // Amount
                                             VStack(alignment: .trailing, spacing: 2) {
                                                 Text(formatCurrency(receipt.total))
-                                                    .font(.system(size: 15, weight: .semibold))
-                                                    .foregroundColor(.primary)
+                                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                                    .foregroundColor(Color.onboardingText)
 
                                                 Text("ID: \(receipt.id.uuidString.prefix(6))")
-                                                    .font(.system(size: 11))
-                                                    .foregroundColor(.secondary)
+                                                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                                                    .foregroundColor(Color.black.opacity(0.5))
                                             }
                                         }
                                         .padding(.horizontal, 16)
@@ -379,7 +425,7 @@ struct ContentView: View {
                             .padding(.bottom, 8)
                         }
                     }
-                    .background(Color(UIColor.systemBackground))
+                    .background(Color.white)
                     .cornerRadius(16)
                     .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
                     .padding(.horizontal)
@@ -388,7 +434,7 @@ struct ContentView: View {
                         Color.clear.frame(height: 16)
                     }
                 }
-                .background(Color(UIColor.secondarySystemGroupedBackground))
+                .background(Color.onboardingBackground)
 
                 // Bottom Navigation Bar
                 Divider()
@@ -400,9 +446,9 @@ struct ContentView: View {
                             Image(systemName: "house.fill")
                                 .font(.system(size: 24))
                             Text("Home")
-                                .font(.system(size: 11))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.primary)
+                        .foregroundColor(Color.onboardingPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                     }
@@ -413,9 +459,9 @@ struct ContentView: View {
                             Image(systemName: "creditcard")
                                 .font(.system(size: 24))
                             Text("Cards")
-                                .font(.system(size: 11))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.black.opacity(0.4))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                     }
@@ -426,9 +472,9 @@ struct ContentView: View {
                             Image(systemName: "chart.bar")
                                 .font(.system(size: 24))
                             Text("Analytics")
-                                .font(.system(size: 11))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.black.opacity(0.4))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                     }
@@ -439,14 +485,14 @@ struct ContentView: View {
                             Image(systemName: "gearshape")
                                 .font(.system(size: 24))
                             Text("Settings")
-                                .font(.system(size: 11))
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
                         }
-                        .foregroundColor(.gray)
+                        .foregroundColor(Color.black.opacity(0.4))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                     }
                 }
-                .background(Color(UIColor.systemBackground))
+                .background(Color.white)
             }
             .navigationBarHidden(true)
             .sheet(isPresented: $showingShareSheet) {
@@ -478,6 +524,12 @@ struct ContentView: View {
                 if let receiptID = selectedReceiptID {
                     ReceiptDetailView(receiptID: receiptID)
                 }
+            }
+            .sheet(isPresented: $showingProfile) {
+                ProfileView(user: currentUser)
+            }
+            .sheet(isPresented: $showingSwitchProfile) {
+                ProfileSwitcherView()
             }
             .fullScreenCover(isPresented: $showingProcessingView) {
                 ReceiptProcessingView(viewModel: viewModel, capturedImage: capturedImage)
@@ -562,6 +614,14 @@ struct ContentView: View {
             }
         }
         .map { (date: $0.date, total: $0.total, percentage: $0.percentage) }
+    }
+
+    // MARK: - Actions
+
+    private func logOff() {
+        // Clear the current user session
+        UserSession.shared.clearSession()
+        // The app will automatically show ProfileSwitcherView on next view update
     }
 
     private func formatCurrency(_ value: Double) -> String {

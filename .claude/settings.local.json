@@ -3,7 +3,11 @@
     "allow": [
       "Bash(curl:*)",
       "Bash(python3:*)",
-      "Bash(xcodebuild:*)"
+      "Bash(xcodebuild:*)",
+      "Bash(git checkout:*)",
+      "Bash(gh pr create:*)",
+      "Bash(git add:*)",
+      "Bash(git pull:*)"
     ],
     "deny": [],
     "ask": []

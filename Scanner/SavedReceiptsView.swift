@@ -12,11 +12,32 @@ struct SavedReceiptsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \SavedReceipt.createdAt, order: .reverse)
-    private var receipts: [SavedReceipt]
+    private var allReceipts: [SavedReceipt]
+    @Query private var userAccounts: [UserAccount]
 
     @State private var selectedReceiptID: UUID?
     @State private var showingDetail = false
     @State private var searchText = ""
+
+    // User session for tracking current user
+    private var userSession = UserSession.shared
+
+    private var currentUser: UserAccount? {
+        userAccounts.first(where: { $0.email == userSession.currentUserEmail })
+    }
+
+    // Filter receipts to show only current user's receipts OR receipts with no owner (shared/legacy)
+    private var receipts: [SavedReceipt] {
+        guard let currentEmail = userSession.currentUserEmail else {
+            // No user logged in, show all receipts with no owner
+            return allReceipts.filter { $0.owner == nil }
+        }
+
+        // Show receipts owned by current user OR receipts with no owner
+        return allReceipts.filter { receipt in
+            receipt.owner == nil || receipt.owner?.email == currentEmail
+        }
+    }
 
     var filteredReceipts: [SavedReceipt] {
         if searchText.isEmpty {
@@ -226,9 +247,28 @@ struct ReceiptDetailView: View {
 
                         ForEach(receipt.items) { item in
                             VStack(alignment: .leading, spacing: 4) {
-                                Text(item.name)
-                                    .font(.body)
-                                    .fontWeight(.medium)
+                                HStack {
+                                    Text(item.name)
+                                        .font(.body)
+                                        .fontWeight(.medium)
+
+                                    Spacer()
+
+                                    // Category badge
+                                    if let category = ItemCategory(rawValue: item.category) {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: category.icon)
+                                                .font(.system(size: 9))
+                                            Text(category.rawValue)
+                                                .font(.system(size: 9, weight: .medium))
+                                        }
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 3)
+                                        .background(category.color.opacity(0.2))
+                                        .foregroundColor(category.color)
+                                        .cornerRadius(4)
+                                    }
+                                }
                                 HStack {
                                     Text("\(item.quantity, specifier: "%.0f") × $\(item.unitPrice, specifier: "%.2f")")
                                         .font(.caption)
@@ -370,7 +410,10 @@ struct ReceiptDetailView: View {
                 name: editableItem.name,
                 quantity: editableItem.quantity,
                 unitPrice: editableItem.unitPrice,
-                lineTotal: editableItem.lineTotal
+                lineTotal: editableItem.lineTotal,
+                discountType: editableItem.discountType.rawValue,
+                discountValue: editableItem.discountValue,
+                category: editableItem.category.rawValue
             )
             receipt.items.append(newItem)
         }
@@ -398,7 +441,10 @@ struct ReceiptDetailView: View {
                     name: item.name,
                     quantity: item.quantity,
                     unitPrice: item.unitPrice,
-                    lineTotal: item.lineTotal
+                    lineTotal: item.lineTotal,
+                    discountType: DiscountType(rawValue: item.discountType) ?? .none,
+                    discountValue: item.discountValue,
+                    category: ItemCategory(rawValue: item.category) ?? .other
                 )
             },
             subtotal: receipt.subtotal,

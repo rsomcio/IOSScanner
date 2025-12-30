@@ -11,6 +11,7 @@ import SwiftData
 struct ReceiptProcessingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query private var userAccounts: [UserAccount]
 
     @Bindable var viewModel: ReceiptScannerViewModel
     let capturedImage: UIImage?
@@ -20,8 +21,21 @@ struct ReceiptProcessingView: View {
     @State private var showingSaveConfirmation = false
     @State private var selectedTab: ProcessingTab = .receipt
 
+    // User session for tracking current user
+    private var userSession = UserSession.shared
+
+    private var currentUser: UserAccount? {
+        userAccounts.first(where: { $0.email == userSession.currentUserEmail })
+    }
+
     enum ProcessingTab {
         case receipt, ocr, csv
+    }
+
+    // Explicit initializer for views with @Query
+    init(viewModel: ReceiptScannerViewModel, capturedImage: UIImage?) {
+        self.viewModel = viewModel
+        self.capturedImage = capturedImage
     }
 
     var body: some View {
@@ -255,7 +269,9 @@ struct ReceiptProcessingView: View {
     private func saveReceipt() {
         guard let receipt = viewModel.parsedReceipt else { return }
 
+        // Create receipt with current user as owner (or nil if no user logged in)
         let savedReceipt = SavedReceipt(from: receipt, ocrText: viewModel.ocrText)
+        savedReceipt.owner = currentUser
         modelContext.insert(savedReceipt)
 
         do {
@@ -401,8 +417,21 @@ struct TotalRow: View {
 }
 
 #Preview {
-    ReceiptProcessingView(
-        viewModel: ReceiptScannerViewModel(),
-        capturedImage: nil
+    struct PreviewWrapper: View {
+        var body: some View {
+            ReceiptProcessingView(
+                viewModel: ReceiptScannerViewModel(),
+                capturedImage: nil
+            )
+        }
+    }
+
+    let config = ModelConfiguration(isStoredInMemoryOnly: true)
+    let container = try! ModelContainer(
+        for: UserAccount.self, UserPurpose.self, SavedReceipt.self, SavedReceiptItem.self,
+        configurations: config
     )
+
+    return PreviewWrapper()
+        .modelContainer(container)
 }

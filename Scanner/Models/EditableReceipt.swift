@@ -7,6 +7,22 @@
 
 import Foundation
 
+// MARK: - Discount Type
+
+enum DiscountType: String, Codable, CaseIterable {
+    case none = "none"
+    case dollar = "dollar"
+    case percentage = "percentage"
+
+    var displayName: String {
+        switch self {
+        case .none: return "No Discount"
+        case .dollar: return "$ Amount"
+        case .percentage: return "% Percentage"
+        }
+    }
+}
+
 // MARK: - Editable Receipt Item
 
 struct EditableReceiptItem: Identifiable, Equatable {
@@ -14,18 +30,34 @@ struct EditableReceiptItem: Identifiable, Equatable {
     var name: String
     var quantity: Double
     var unitPrice: Double
+    var discountType: DiscountType
+    var discountValue: Double
+    var category: ItemCategory
 
-    // Auto-calculated line total
+    // Auto-calculated line total with discount applied
     var lineTotal: Double {
-        quantity * unitPrice
+        let baseAmount = quantity * unitPrice
+
+        switch discountType {
+        case .none:
+            return baseAmount
+        case .dollar:
+            return max(0, baseAmount - discountValue)
+        case .percentage:
+            let discountAmount = baseAmount * (discountValue / 100.0)
+            return max(0, baseAmount - discountAmount)
+        }
     }
 
     // Default initializer
-    init(id: UUID = UUID(), name: String = "", quantity: Double = 1.0, unitPrice: Double = 0.0) {
+    init(id: UUID = UUID(), name: String = "", quantity: Double = 1.0, unitPrice: Double = 0.0, discountType: DiscountType = .none, discountValue: Double = 0.0, category: ItemCategory = .other) {
         self.id = id
         self.name = name
         self.quantity = quantity
         self.unitPrice = unitPrice
+        self.discountType = discountType
+        self.discountValue = discountValue
+        self.category = category
     }
 
     // Initialize from ParsedReceipt item
@@ -34,6 +66,9 @@ struct EditableReceiptItem: Identifiable, Equatable {
         self.name = item.name
         self.quantity = item.quantity
         self.unitPrice = item.unitPrice
+        self.discountType = item.discountType
+        self.discountValue = item.discountValue
+        self.category = item.category
     }
 
     // Initialize from SavedReceipt item
@@ -42,6 +77,9 @@ struct EditableReceiptItem: Identifiable, Equatable {
         self.name = item.name
         self.quantity = item.quantity
         self.unitPrice = item.unitPrice
+        self.discountType = DiscountType(rawValue: item.discountType) ?? .none
+        self.discountValue = item.discountValue
+        self.category = ItemCategory(rawValue: item.category) ?? .other
     }
 
     // Convert to ReceiptItem
@@ -50,7 +88,10 @@ struct EditableReceiptItem: Identifiable, Equatable {
             name: name,
             quantity: quantity,
             unitPrice: unitPrice,
-            lineTotal: lineTotal
+            lineTotal: lineTotal,
+            discountType: discountType,
+            discountValue: discountValue,
+            category: category
         )
     }
 }
